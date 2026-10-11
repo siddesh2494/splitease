@@ -64,13 +64,16 @@ fun AddExpenseSheet(
         mutableStateOf(if (initial == null || initial.splitType == SplitType.EQUAL) SplitType.EQUAL else SplitType.EXACT)
     }
     var selected by remember {
-        mutableStateOf(initial?.splits?.map { it.memberId }?.toSet() ?: group.members.map { it.id }.toSet())
+        mutableStateOf<Set<String>>(
+            initial?.splits?.map { it.memberId }?.toSet() ?: group.members.map { it.id }.toSet()
+        )
     }
+    // Explicit type: with only `mapOf()` in the else-branch Kotlin can't infer the map's types.
     var raw by remember {
-        mutableStateOf(
+        mutableStateOf<Map<String, String>>(
             if (initial != null && initial.splitType != SplitType.EQUAL)
                 initial.splits.associate { it.memberId to minorToText(it.amount) }
-            else mapOf()
+            else emptyMap()
         )
     }
     var error by remember { mutableStateOf<String?>(null) }
