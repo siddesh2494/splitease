@@ -2,7 +2,7 @@ package com.splitease.app.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.splitease.app.data.local.entity.GroupEntity
+import com.splitease.app.data.repository.GroupSummary
 import com.splitease.app.data.repository.SplitRepository
 import com.splitease.app.domain.model.GroupType
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -15,13 +15,17 @@ import javax.inject.Inject
 @HiltViewModel
 class HomeViewModel @Inject constructor(private val repo: SplitRepository) : ViewModel() {
 
-    val groups: StateFlow<List<GroupEntity>> = repo.observeGroups()
+    val groups: StateFlow<List<GroupSummary>> = repo.observeGroupSummaries()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init { viewModelScope.launch { repo.ensureMe("Me") } }
 
     fun createGroup(name: String, type: GroupType, currency: String, members: List<String>) {
         viewModelScope.launch { repo.createGroup(name, type, currency, members) }
+    }
+
+    fun deleteGroup(groupId: String) {
+        viewModelScope.launch { repo.deleteGroup(groupId) }
     }
 
     suspend fun join(code: String): String? = repo.joinByCode(code)

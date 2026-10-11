@@ -8,7 +8,10 @@ enum class ExpenseCategory { FOOD, TRAVEL, UTILITIES, ENTERTAINMENT, RENT, SHOPP
 
 enum class Recurrence { NONE, WEEKLY, MONTHLY, YEARLY }
 
-enum class ActivityType { EXPENSE_ADDED, EXPENSE_EDITED, EXPENSE_DELETED, SETTLED, MEMBER_JOINED, GROUP_CREATED }
+enum class ActivityType {
+    EXPENSE_ADDED, EXPENSE_EDITED, EXPENSE_DELETED, SETTLED, MEMBER_JOINED, GROUP_CREATED,
+    MEMBER_REMOVED, GROUP_EDITED,
+}
 
 /** All money is stored as Long minor units (e.g. paise / cents) to avoid floating-point drift. */
 data class Member(val id: String, val name: String)

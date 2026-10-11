@@ -21,6 +21,9 @@ interface UserDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(user: UserEntity)
 
+    @Query("UPDATE users SET name = :name WHERE id = :id")
+    suspend fun rename(id: String, name: String)
+
     @Query("SELECT * FROM users WHERE isMe = 1 LIMIT 1")
     fun observeMe(): Flow<UserEntity?>
 
@@ -54,6 +57,26 @@ interface GroupDao {
         upsert(group)
         memberIds.forEach { addMember(GroupMemberEntity(group.id, it)) }
     }
+
+    @Query("DELETE FROM group_members WHERE groupId = :groupId AND userId = :userId")
+    suspend fun removeMember(groupId: String, userId: String)
+
+    @Query("UPDATE groups SET name = :name, type = :type WHERE id = :id")
+    suspend fun updateDetails(id: String, name: String, type: String)
+
+    /** Foreign-key CASCADE removes the group's members, expenses, splits, settlements and activity. */
+    @Query("DELETE FROM groups WHERE id = :id")
+    suspend fun delete(id: String)
+
+    /** People who only existed in the deleted group (never "me") are cleaned up too. */
+    @Query("DELETE FROM users WHERE isMe = 0 AND id NOT IN (SELECT userId FROM group_members)")
+    suspend fun deleteOrphanUsers()
+
+    @Transaction
+    suspend fun deleteWithData(id: String) {
+        delete(id)
+        deleteOrphanUsers()
+    }
 }
 
 @Dao
@@ -69,6 +92,15 @@ interface ExpenseDao {
 
     @Query("UPDATE expenses SET deleted = 1 WHERE id = :id")
     suspend fun softDelete(id: String)
+
+    @Query("UPDATE expenses SET deleted = 0 WHERE id = :id")
+    suspend fun restore(id: String)
+
+    /** How many live expenses in the group involve this person (as payer or in the split). */
+    @Query("""SELECT COUNT(*) FROM expenses e WHERE e.groupId = :groupId AND e.deleted = 0
+              AND (e.paidBy = :userId OR EXISTS (
+                  SELECT 1 FROM expense_splits s WHERE s.expenseId = e.id AND s.userId = :userId))""")
+    suspend fun countInvolving(groupId: String, userId: String): Int
 
     @Transaction
     suspend fun save(expense: ExpenseEntity, splits: List<ExpenseSplitEntity>) {
@@ -96,6 +128,9 @@ interface ExpenseDao {
 interface SettlementDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(s: SettlementEntity)
+
+    @Query("SELECT COUNT(*) FROM settlements WHERE groupId = :groupId AND (fromUserId = :userId OR toUserId = :userId)")
+    suspend fun countInvolving(groupId: String, userId: String): Int
 
     @Query("SELECT * FROM settlements WHERE groupId = :groupId ORDER BY createdAt DESC")
     fun observeForGroup(groupId: String): Flow<List<SettlementEntity>>

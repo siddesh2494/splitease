@@ -6,10 +6,15 @@ import com.splitease.app.data.local.entity.*
 import com.splitease.app.domain.model.*
 import com.splitease.app.domain.usecase.BalanceCalculator
 import com.splitease.app.domain.usecase.DebtSimplifier
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.withContext
 import java.util.Calendar
+import kotlin.math.roundToLong
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,6 +29,18 @@ data class GroupState(
     val activity: List<ActivityItem>,
 )
 
+/** Lightweight per-group info for the Home screen. Balance is the current user's, in [currency]. */
+data class GroupSummary(
+    val id: String,
+    val name: String,
+    val type: GroupType,
+    val currency: String,
+    val memberNames: List<String>,
+    val myBalance: Long,
+    val expenseCount: Int,
+    val totalSpent: Long,
+)
+
 @Singleton
 class SplitRepository @Inject constructor(private val db: AppDatabase) {
 
@@ -36,6 +53,88 @@ class SplitRepository @Inject constructor(private val db: AppDatabase) {
 
     fun observeMe(): Flow<UserEntity?> = users.observeMe()
     fun observeGroups(): Flow<List<GroupEntity>> = groups.observeAll()
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeGroupSummaries(): Flow<List<GroupSummary>> =
+        combine(groups.observeAll(), users.observeMe()) { list, me -> list to me }
+            .flatMapLatest { (list, me) ->
+                if (list.isEmpty()) flowOf(emptyList<GroupSummary>())
+                else combine(list.map { observeGroupState(it.id) }) { states ->
+                    states.filterNotNull().map { s ->
+                        GroupSummary(
+                            id = s.group.id,
+                            name = s.group.name,
+                            type = s.group.type,
+                            currency = s.group.baseCurrency,
+                            memberNames = s.group.members.map { it.name },
+                            myBalance = s.balances[me?.id] ?: 0L,
+                            expenseCount = s.expenses.size,
+                            totalSpent = s.expenses.sumOf { (it.amount * it.rateToBase).roundToLong() },
+                        )
+                    }
+                }
+            }
+
+    /** Deletes the group and everything inside it. NonCancellable so leaving the screen can't abort it. */
+    suspend fun deleteGroup(groupId: String) = withContext(NonCancellable) {
+        groups.deleteWithData(groupId)
+    }
+
+    // ---- Members & group details ----
+
+    /** Adds a new person to the group. Returns the new member's id, or null for a blank name. */
+    suspend fun addMember(groupId: String, name: String, actorName: String): String? {
+        val clean = name.trim()
+        if (clean.isEmpty()) return null
+        val user = UserEntity(newId(), clean)
+        users.upsert(user)
+        groups.addMember(GroupMemberEntity(groupId, user.id))
+        log(groupId, ActivityType.MEMBER_JOINED, actorName, "added $clean to the group")
+        return user.id
+    }
+
+    suspend fun renameMember(groupId: String, userId: String, oldName: String, newName: String, actorName: String) {
+        val clean = newName.trim()
+        if (clean.isEmpty() || clean == oldName) return
+        users.rename(userId, clean)
+        log(groupId, ActivityType.GROUP_EDITED, actorName, "renamed $oldName to $clean")
+    }
+
+    /**
+     * Removes a member. A person who still appears in an expense or payment can't be removed
+     * (their history would lose its meaning), so the caller gets a message explaining what to
+     * edit first. Returns null on success.
+     */
+    suspend fun removeMember(
+        groupId: String, userId: String, name: String, myId: String?, actorName: String,
+    ): String? {
+        if (userId == myId) return "You can't remove yourself from the group."
+        val expenseCount = expenses.countInvolving(groupId, userId)
+        val settlementCount = settlements.countInvolving(groupId, userId)
+        if (expenseCount > 0 || settlementCount > 0) {
+            val parts = buildList {
+                if (expenseCount > 0) add("$expenseCount expense${if (expenseCount == 1) "" else "s"}")
+                if (settlementCount > 0) add("$settlementCount payment${if (settlementCount == 1) "" else "s"}")
+            }
+            return "$name is part of ${parts.joinToString(" and ")}. Edit or delete those first, then remove them."
+        }
+        groups.removeMember(groupId, userId)
+        groups.deleteOrphanUsers()
+        log(groupId, ActivityType.MEMBER_REMOVED, actorName, "removed $name from the group")
+        return null
+    }
+
+    suspend fun updateGroupDetails(groupId: String, name: String, type: GroupType, actorName: String) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        groups.updateDetails(groupId, clean, type.name)
+        log(groupId, ActivityType.GROUP_EDITED, actorName, "updated the group details")
+    }
+
+    suspend fun restoreExpense(expenseId: String, groupId: String, title: String, actorName: String) {
+        expenses.restore(expenseId)
+        log(groupId, ActivityType.EXPENSE_ADDED, actorName, "restored \"$title\"")
+    }
 
     suspend fun ensureMe(name: String): UserEntity {
         users.getMe()?.let { return it }

@@ -23,11 +23,19 @@ android {
         applicationId = "com.splitease.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     signingConfigs {
+        // Fixed debug key committed to the repo so every CI build has the SAME signature and a new
+        // APK installs over the old one (a fresh random key per build forces an uninstall first).
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (keystoreProps.containsKey("storeFile")) {
             create("release") {
                 storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))

@@ -7,6 +7,15 @@ Kotlin · Jetpack Compose (Material 3) · Room · Hilt · Navigation Compose (ty
 > **not been compiled yet** — expect to fix a few small compile/version issues on first sync
 > (library versions in `gradle/libs.versions.toml` should be bumped to the latest stable).
 
+## What's new in 1.1.0
+- **Delete a group** (⋮ menu on a group card, or ⋮ → Delete group inside a group), with confirmation.
+- **Edit expenses:** tap any expense. Swipe left to delete, with Undo.
+- **Edit group & members:** ⋮ → Edit group & members. Rename the group, rename / add / remove people.
+  Someone who is still in an expense or payment can't be removed until those are edited.
+- **Add a person while adding or editing an expense**, and untick people to remove them from it.
+- **New design:** Plus Jakarta Sans font, gradient hero cards, design tokens. See `DESIGN.md`.
+- **Fixed debug signing key** (`app/debug.keystore`) so future updates install over the old app.
+
 ## 1. Project setup (step by step)
 
 1. Install **Android Studio** (current stable), **JDK 17**, and in SDK Manager install
